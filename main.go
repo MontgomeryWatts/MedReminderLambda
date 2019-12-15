@@ -2,6 +2,7 @@ package main
 
 import (
 	"log"
+	"os"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -14,6 +15,14 @@ type CloudWatchInput struct {
 	Message string `json:"message"`
 }
 
+func getEnv (key string) string {
+	env, ok := os.LookupEnv(key)
+	if !ok {
+		log.Fatalf("%s is not set in environment variables", key)
+	}
+	return env
+}
+
 func Handler (input CloudWatchInput) {
 	sess, err := session.NewSession(&aws.Config{
 		Region: aws.String("us-east-1"),
@@ -24,21 +33,29 @@ func Handler (input CloudWatchInput) {
 	}
 
 	svc := sns.New(sess)
-	sendSMSMessage(svc, &input.PhoneNumber, &input.Message)
+	topicArn := getEnv("TOPIC_ARN")
+	sendSMSMessage(svc, &topicArn, &input.PhoneNumber, &input.Message)
 }
 
 func main () {
 	lambda.Start(Handler)
 }
 
-func sendSMSMessage(client *sns.SNS, phoneNumber, msg *string) {
-	log.Printf("Publishing an SNS message for phone number: %s", *phoneNumber)
+func sendSMSMessage(client *sns.SNS, topicArn, phoneNumber, msg *string) {
+	var attrs = map[string]*sns.MessageAttributeValue {
+		"endpoint": &sns.MessageAttributeValue{
+			DataType: aws.String("String"),
+			StringValue: phoneNumber,
+		},
+	}
+
 	_, err := client.Publish(&sns.PublishInput{
 		Message: msg,
-		PhoneNumber: phoneNumber,
+		MessageAttributes: attrs,
+		TopicArn: topicArn,
 	})
 
 	if err != nil {
-		log.Printf("Failed to publish to SNS for phone number %s \n%v", *phoneNumber, err)
+		log.Printf("Failed to publish for endpoint %s \n%v", *phoneNumber, err)
 	}
 }
